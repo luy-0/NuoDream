@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DREAM_SESSION_STORAGE_KEY, readDreamSession } from "@/domain/dream-session/storage";
-import { GET_FACE_RITUAL_STORAGE_KEY, writeGetFaceRitualSession, type GetFaceRitualSession } from "@/domain/get-face/session";
+import { GET_FACE_RITUAL_STORAGE_KEY, readGetFaceRitualSession, writeGetFaceRitualSession, type GetFaceRitualSession } from "@/domain/get-face/session";
 import { GetFaceRitual } from "./get-face-ritual";
 
 const router = vi.hoisted(() => ({ push: vi.fn() }));
@@ -20,11 +21,12 @@ const WISH = "我很难开口向别人求助，怕麻烦别人，也怕被拒绝
 
 function candidatesResponse(candidates: [string, string] = [LIUYI, KAILU], provider = "deterministic-local") {
   return {
-    schemaVersion: "1.0.0",
+    schemaVersion: "1.1.0",
     status: "candidates",
     candidates,
+    candidateScores: [{ probability: .87654321, round: 1 }, { probability: .43210987, round: 1 }],
     provider,
-    promptVersion: "get-face.profiles.v1"
+    promptVersion: "get-face.profiles.v1.1"
   };
 }
 
@@ -32,7 +34,7 @@ function jsonResponse(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
 }
 
-const SOURCE = { provider: "openrouter-jev", promptVersion: "get-face.profiles.v1" };
+const SOURCE = { provider: "openrouter-jev", promptVersion: "get-face.profiles.v1.1" };
 
 function matchingSession(wish = WISH): GetFaceRitualSession {
   return {
@@ -83,16 +85,36 @@ describe("GetFaceRitual", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1450); });
 
     expect(container.querySelector('.get-face-ritual[data-phase="choosing"]')).toBeTruthy();
-    expect(container.querySelectorAll(".orbit-mask.candidate")).toHaveLength(2);
-    expect(container.querySelectorAll(".orbit-mask.dismissed")).toHaveLength(6);
+    // The two cards are the only masks on stage; the orbit belongs to matching.
+    expect(container.querySelector(".mask-match-stage")).toBeNull();
+    expect(container.querySelectorAll(".orbit-mask")).toHaveLength(0);
     expect(container.querySelectorAll(".choice-card")).toHaveLength(2);
+    expect(container.querySelector(".choice-stage .choice-copy")).toBeTruthy();
+    expect(container.querySelector(".choice-stage .choice-reset")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "入 戏" })).toBeNull();
+    // Cards show mask image, mask name and a second-person question only.
+    const prompts = Array.from(container.querySelectorAll(".choice-card-prompt")).map((node) => node.textContent ?? "");
+    expect(prompts).toHaveLength(2);
+    for (const prompt of prompts) {
+      expect(prompt).toContain("你");
+      expect(prompt).not.toContain("我");
+    }
+    expect(container.querySelector(".choice-card-story")).toBeNull();
+    expect(screen.queryByText(/《.+》/)).toBeNull();
+    // Raw Jev scores may arrive on the wire but must never be rendered.
+    expect(container.textContent ?? "").not.toMatch(/0\.87654321|0\.43210987|得分|概率|probability/);
     // Nothing is created, persisted or preloaded before the user chooses.
     expect(readDreamSession(window.sessionStorage)).toBeNull();
     expect(preloader.preloadMatchedDreamResources).not.toHaveBeenCalled();
     expect(fetchSpy).toHaveBeenCalledWith("/api/dream/candidates", expect.objectContaining({ method: "POST" }));
 
     fireEvent.click(screen.getByRole("button", { name: /柳毅/ }));
+
+    // Gacha feedback: the chosen card lifts, the other one retires, then the reveal starts.
+    expect(container.querySelectorAll(".choice-card.is-chosen")).toHaveLength(1);
+    expect(container.querySelectorAll(".choice-card.is-dismissed")).toHaveLength(1);
+    expect(container.querySelector('.get-face-ritual[data-phase="choosing"]')).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(240); });
 
     const session = readDreamSession(window.sessionStorage);
     expect(session?.match.cardId).toBe(LIUYI);
@@ -121,6 +143,7 @@ describe("GetFaceRitual", () => {
     const card = screen.getByRole("button", { name: /柳毅/ });
     fireEvent.click(card);
     fireEvent.click(card);
+    await act(async () => { await vi.advanceTimersByTimeAsync(240); });
 
     expect(container.querySelector('.get-face-ritual[data-phase="mask"]')).toBeTruthy();
     expect(preloader.preloadMatchedDreamResources.mock.calls.filter(([cardId, scope]) => cardId === LIUYI && scope === "first-act")).toHaveLength(1);
@@ -211,10 +234,10 @@ describe("GetFaceRitual", () => {
   it("asks for a clearer problem when the server cannot find two candidates", async () => {
     vi.useFakeTimers();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
-      schemaVersion: "1.0.0",
+      schemaVersion: "1.1.0",
       status: "needs_detail",
       provider: "deterministic-local",
-      promptVersion: "get-face.profiles.v1"
+      promptVersion: "get-face.profiles.v1.1"
     }));
     writeGetFaceRitualSession(matchingSession("说不清"));
 
@@ -248,7 +271,7 @@ describe("GetFaceRitual", () => {
     const session = readDreamSession(window.sessionStorage);
     expect(session?.match.cardId).toBe(KAILU);
     expect(session?.selection?.provider).toBe("openrouter-jev");
-    expect(session?.selection?.promptVersion).toBe("get-face.profiles.v1");
+    expect(session?.selection?.promptVersion).toBe("get-face.profiles.v1.1");
   });
 
   it("falls back to a labelled source only for pre-source restored choices", () => {
@@ -256,7 +279,90 @@ describe("GetFaceRitual", () => {
     render(<GetFaceRitual onReturn={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /柳毅/ }));
     const session = readDreamSession(window.sessionStorage);
-    expect(session?.selection).toMatchObject({ provider: "restored-session", promptVersion: "get-face.profiles.v1" });
+    expect(session?.selection).toMatchObject({ provider: "restored-session", promptVersion: "get-face.profiles.v1.1" });
+  });
+
+  it("enters the reveal immediately when reduced motion is requested", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }) as unknown as MediaQueryList);
+    writeGetFaceRitualSession(choosingSession());
+    const { container } = render(<GetFaceRitual onReturn={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /柳毅/ }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+    expect(container.querySelector('.get-face-ritual[data-phase="mask"]')).toBeTruthy();
+  });
+
+  it("renders each candidate as a card with frame art, back face and no extra labels", () => {
+    writeGetFaceRitualSession(choosingSession());
+    const { container } = render(<GetFaceRitual onReturn={vi.fn()} />);
+
+    const cards = Array.from(container.querySelectorAll(".choice-card"));
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(card.querySelector(".choice-card-inner")).toBeTruthy();
+      expect(card.querySelector(".choice-card-front")).toBeTruthy();
+      expect(card.querySelector(".choice-card-back")).toBeTruthy();
+      expect(card.querySelector(".choice-card-frame")).toBeTruthy();
+      expect(card.querySelector(".choice-card-mask img")).toBeTruthy();
+      expect(card.querySelector(".choice-card-name")?.textContent).toMatch(/柳毅|开路将军/);
+      expect(card.querySelector(".choice-card-prompt")?.textContent).toContain("你");
+      expect(card.textContent ?? "").not.toMatch(/傩谱|已收录|《|》|\d{2}/);
+    }
+    // No duplicated floating masks from the matching orbit.
+    expect(container.querySelectorAll(".orbit-mask")).toHaveLength(0);
+  });
+
+  it("server-renders the deterministic initial phase without reading sessionStorage", () => {
+    writeGetFaceRitualSession(choosingSession());
+    const html = renderToString(<GetFaceRitual onReturn={() => undefined} />);
+    expect(html).toContain('data-phase="name"');
+    expect(html).not.toContain('data-phase="choosing"');
+  });
+
+  it("restores a saved wish draft after mount without overwriting the stored session", () => {
+    const stored: GetFaceRitualSession = { ...matchingSession("保存过的困惑"), phase: "wish", name: "阿渡" };
+    writeGetFaceRitualSession(stored);
+    const { container } = render(<GetFaceRitual onReturn={vi.fn()} />);
+
+    expect(container.querySelector('.get-face-ritual[data-phase="wish"]')).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "阿渡，此刻何事令你止步？" })).toBeTruthy();
+    expect((screen.getByLabelText("现实困惑") as HTMLTextAreaElement).value).toBe("保存过的困惑");
+    expect(readGetFaceRitualSession(window.sessionStorage)).toEqual(stored);
+  });
+
+  it("restores a stored mask phase after a refresh", () => {
+    const stored: GetFaceRitualSession = {
+      ...matchingSession("我想找到一条路"),
+      phase: "mask",
+      candidateCardIds: [KAILU, LIUYI],
+      candidateSource: SOURCE,
+      selectedMaskIndex: 0,
+      cardId: KAILU
+    };
+    writeGetFaceRitualSession(stored);
+    const { container } = render(<GetFaceRitual onReturn={vi.fn()} />);
+
+    expect(container.querySelector('.get-face-ritual[data-phase="mask"]')).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "开路将军" })).toBeTruthy();
+    expect(readGetFaceRitualSession(window.sessionStorage)).toEqual(stored);
+  });
+
+  it("shows gacha-style guide copy instead of a plain two-choice sentence", () => {
+    writeGetFaceRitualSession(choosingSession());
+    render(<GetFaceRitual onReturn={vi.fn()} />);
+    expect(screen.getByText("两面已落在案前，翻开你更想面对的那一张。")).toBeTruthy();
+    expect(screen.queryByText("这是两种可以选择的照面方式。选定一场，再入戏。")).toBeNull();
   });
 
   it("keeps the legacy single-story mask reveal and dream entry working", async () => {

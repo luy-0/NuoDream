@@ -147,6 +147,11 @@ export function createFallbackCandidateProvider(
         profiles
       );
       if (!fallbackResult) throw new Error("fallback candidate provider returned an invalid response");
+      // Degraded candidate answers can never carry Jev scores; needs_detail
+      // responses have no score field at all.
+      if (fallbackResult.status === "candidates") {
+        return { ...fallbackResult, candidateScores: null, provider: `${fallback.id}:fallback` };
+      }
       return { ...fallbackResult, provider: `${fallback.id}:fallback` };
     }
   };

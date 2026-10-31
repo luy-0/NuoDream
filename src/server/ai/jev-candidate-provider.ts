@@ -4,6 +4,7 @@ import {
   CANDIDATE_SCHEMA_VERSION,
   type CandidateRequest,
   type CandidateResponse,
+  type CandidateScores,
   type StoryMatchProfile
 } from "@/domain/get-face";
 import type { CandidateProviderOptions, DreamCandidateProvider } from "./candidate-provider";
@@ -225,12 +226,16 @@ export function createJevCandidateProvider(options: JevCandidateProviderOptions 
     console.info("[dream-candidates:round-two]", JSON.stringify(event));
   });
 
-  const buildResponse = ([first, second]: [StoryMatchProfile, StoryMatchProfile]): CandidateResponse => {
+  const buildResponse = (
+    [first, second]: [StoryMatchProfile, StoryMatchProfile],
+    candidateScores: CandidateScores
+  ): CandidateResponse => {
     if (first.cardId === second.cardId) throw invalidResponse("two candidates must be different stories");
     return {
       schemaVersion: CANDIDATE_SCHEMA_VERSION,
       status: "candidates",
       candidates: [first.cardId, second.cardId],
+      candidateScores,
       provider: JEV_PROVIDER_ID,
       promptVersion: CANDIDATE_PROMPT_VERSION
     };
@@ -291,7 +296,10 @@ export function createJevCandidateProvider(options: JevCandidateProviderOptions 
 
       // Below 1: take the two most probable options from the first round.
       if (top.probability < 1) {
-        return buildResponse([top.profile, runnerUp.profile]);
+        return buildResponse([top.profile, runnerUp.profile], [
+          { probability: top.probability, round: 1 },
+          { probability: runnerUp.probability, round: 1 }
+        ]);
       }
 
       // Exactly 1: remove that option in server code and ask Jev for a second
@@ -309,7 +317,10 @@ export function createJevCandidateProvider(options: JevCandidateProviderOptions 
         first: top.profile.cardId,
         latencyMs: Date.now() - startedAt
       });
-      return buildResponse([top.profile, secondTop.profile]);
+      return buildResponse([top.profile, secondTop.profile], [
+        { probability: top.probability, round: 1 },
+        { probability: secondTop.probability, round: 2 }
+      ]);
     }
   };
 }

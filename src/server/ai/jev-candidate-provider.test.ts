@@ -124,9 +124,10 @@ describe("Jev decision request", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
 
     expect(response).toEqual({
-      schemaVersion: "1.0.0",
+      schemaVersion: "1.1.0",
       status: "candidates",
       candidates: [LIUYI.cardId, TANGSHI.cardId],
+      candidateScores: [{ probability: .5, round: 1 }, { probability: .3, round: 1 }],
       provider: JEV_PROVIDER_ID,
       promptVersion: expect.any(String)
     });
@@ -290,6 +291,23 @@ describe("Jev certainty branch (second round)", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
+  it("returns the raw first-round probabilities without normalizing or rounding", async () => {
+    const top = .123456789123
+    const runnerUp = .100000000456
+    const payload = decisionPayload({
+      choice: LIUYI.optionId,
+      probabilityOverrides: { [LIUYI.optionId]: top, [TANGSHI.optionId]: runnerUp }
+    });
+    const provider = createJevCandidateProvider({ fetchImpl: createFetch(payload) as unknown as typeof fetch, apiKey: () => "test-key" });
+    const response = await provider.selectCandidates({ wish: WISH }, STORY_MATCH_PROFILES);
+    if (response.status !== "candidates") throw new Error("expected candidates");
+    expect(response.candidateScores).toEqual([
+      { probability: top, round: 1 },
+      { probability: runnerUp, round: 1 }
+    ]);
+    expect(response.candidateScores?.map((score) => score.probability)).not.toEqual([1, 0]);
+  });
+
   it("removes the certain option and asks Jev again over the remaining seven", async () => {
     const remaining = STORY_MATCH_PROFILES.filter((profile) => profile.cardId !== LIUYI.cardId);
     const fetchImpl = createSequencedFetch([
@@ -318,6 +336,10 @@ describe("Jev certainty branch (second round)", () => {
     expect(Object.keys(secondBody.questions)).toEqual(["story"]);
     expect(Object.keys(secondBody.questions.story).sort()).toEqual(["criteria", "instructions", "type"]);
 
+    expect(response.candidateScores).toEqual([
+      { probability: 1, round: 1 },
+      { probability: .6, round: 2 }
+    ]);
     expect(log).toHaveBeenCalledOnce();
     expect(log.mock.calls[0][0]).toMatchObject({ event: "second-round", first: LIUYI.cardId });
     expect(JSON.stringify(log.mock.calls)).not.toContain(WISH);

@@ -29,7 +29,7 @@ function legacyStorage(session: Record<string, unknown>) {
   return fake;
 }
 
-const SOURCE = { provider: "openrouter-jev", promptVersion: "get-face.profiles.v1" };
+const SOURCE = { provider: "openrouter-jev", promptVersion: "get-face.profiles.v1.1" };
 
 function atChoosing(): GetFaceRitualSession {
   let state = createInitialGetFaceRitualSession();

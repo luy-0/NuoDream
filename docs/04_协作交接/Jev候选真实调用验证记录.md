@@ -20,6 +20,7 @@
 | 响应上限 | 32 KiB（`JEV_MAX_RESPONSE_BYTES`） |
 | 请求体 | 仅 `state.wish` 与画像表生成的 `criteria`；不含姓名、会话 ID、故事全文或素材 |
 | 使用字段 | 每轮的 `probabilities`（按概率降序）；第一轮判断最高概率是否严格为 `1`；第二轮取七项概率的 argmax（平分按画像表固定顺序）为第二候选；每轮 `choice` 必须属于本轮选项，且其概率必须等于当轮最大概率（并列时任一最高项都合法），否则视为无效响应并降级；`confidence` 忽略；不依赖键序 |
+| 候选得分 | 成功响应新增 `candidateScores`：与候选等长的 `{ probability, round }` 元组，`probability` 为 Jev 原始值；首轮直取时 `round = 1/1`，二轮时 `1/2`；本地规则与降级为 `null`，`needs_detail` 不含此字段。前端不展示。候选 schemaVersion 为 `1.1.0`。 |
 
 ### 二选一策略（只存在于服务端代码）
 
@@ -100,3 +101,4 @@ OPENROUTER_EVAL=1 npx vitest run src/server/ai/jev-candidate-provider.eval.test.
 - `src/server/ai/candidate-provider.ts`（组合与降级、结构异常降级、元信息日志）
 - `src/server/ai/candidate-samples.ts`、`src/server/ai/jev-candidate-provider.eval.test.ts`（样本与评估）
 - `src/app/api/dream/candidates/route.ts`（对外契约与审计日志）
+- `src/domain/get-face/candidate-schema.ts`（`candidateScores` 校验与 `1.1.0` 契约）

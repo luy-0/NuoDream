@@ -5,7 +5,7 @@ import { getDreamCard, listDreamCardIds } from "@/domain/dream-card";
 import { resolveChoiceCard, resolveChoiceCards } from "./choice-cards";
 import { getFaceData } from "./data";
 import { RITUAL_CARD_IDS, RITUAL_STORY_MASKS, ritualMaskIndex } from "./ritual-story-masks";
-import { STORY_MATCH_OPTION_IDS, STORY_MATCH_PROFILES } from "./story-match-profiles";
+import { STORY_MATCH_OPTION_IDS, STORY_MATCH_PROFILE_VERSION, STORY_MATCH_PROFILES } from "./story-match-profiles";
 
 describe("story match profiles", () => {
   it("covers the eight registered stories exactly once", () => {
@@ -43,6 +43,16 @@ describe("story match profiles", () => {
       expect(profile.prompt).not.toBe(profile.criteria);
       const card = getDreamCard(profile.cardId);
       expect(profile.prompt).not.toContain(card!.meta.title);
+    }
+  });
+
+  it("addresses the user in the second person and never shows a story title", () => {
+    expect(STORY_MATCH_PROFILE_VERSION).toBe("get-face.profiles.v1.1");
+    for (const profile of STORY_MATCH_PROFILES) {
+      expect(profile.prompt).toContain("你");
+      expect(profile.prompt).not.toContain("我");
+      expect(profile.prompt).not.toContain("《");
+      expect(profile.prompt).not.toContain("》");
     }
   });
 });

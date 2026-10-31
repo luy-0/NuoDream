@@ -17,7 +17,7 @@ describe("DreamSession v1", () => {
       cardId: LIUYI,
       candidateCardIds: [LIUYI, KAILU],
       provider: "deterministic-local",
-      promptVersion: "get-face.profiles.v1"
+      promptVersion: "get-face.profiles.v1.1"
     }, new Date("2026-08-28T00:00:00.000Z"));
 
     expect(session.match.cardId).toBe(LIUYI);
@@ -28,7 +28,7 @@ describe("DreamSession v1", () => {
       candidateCardIds: [LIUYI, KAILU],
       chosenCardId: LIUYI,
       provider: "deterministic-local",
-      promptVersion: "get-face.profiles.v1"
+      promptVersion: "get-face.profiles.v1.1"
     });
     expect(dreamSessionSchema.parse(session)).toEqual(session);
   });
@@ -53,7 +53,7 @@ describe("DreamSession v1", () => {
       cardId: LIUYI,
       candidateCardIds: [LIUYI, KAILU],
       provider: "deterministic-local",
-      promptVersion: "get-face.profiles.v1"
+      promptVersion: "get-face.profiles.v1.1"
     });
     expect(() => dreamSessionSchema.parse({
       ...session,
@@ -67,7 +67,7 @@ describe("DreamSession v1", () => {
       cardId: LIUYI,
       candidateCardIds: [LIUYI, KAILU],
       provider: "deterministic-local",
-      promptVersion: "get-face.profiles.v1"
+      promptVersion: "get-face.profiles.v1.1"
     });
     expect(() => dreamSessionSchema.parse({ ...session, match: { ...session.match, cardId: KAILU } })).toThrow();
   });

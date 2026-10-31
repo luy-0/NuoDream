@@ -62,6 +62,8 @@ export function createDeterministicCandidateProvider(): DreamCandidateProvider {
         schemaVersion: CANDIDATE_SCHEMA_VERSION,
         status: "candidates",
         candidates: [selected[0].cardId, selected[1].cardId],
+        // Keyword hit counts are not Jev probabilities, so they are not scores.
+        candidateScores: null,
         provider: "deterministic-local",
         promptVersion: CANDIDATE_PROMPT_VERSION
       };

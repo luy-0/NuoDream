@@ -17,13 +17,15 @@ describe("dream route handlers", () => {
     const response = await candidates(jsonRequest({ wish: "我很难开口向别人求助，怕麻烦别人，也怕被拒绝" }));
     expect(response.status).toBe(200);
     const raw = await response.json();
-    // The browser sees ids and version metadata only, never probabilities or model text.
-    expect(Object.keys(raw).sort()).toEqual(["candidates", "promptVersion", "provider", "schemaVersion", "status"]);
+    // The browser sees ids, raw scores and version metadata only, never model text.
+    expect(Object.keys(raw).sort()).toEqual(["candidateScores", "candidates", "promptVersion", "provider", "schemaVersion", "status"]);
     expect(JSON.stringify(raw)).not.toMatch(/probabilities|confidence/);
     const body = candidateResponseSchema.parse(raw);
     expect(body.status).toBe("candidates");
     if (body.status !== "candidates") throw new Error("expected candidates");
     expect(new Set(body.candidates).size).toBe(2);
+    // No API key in the test process means the route degrades to the local rule.
+    expect(body.candidateScores).toBeNull();
     const profileIds = STORY_MATCH_PROFILES.map((profile) => profile.cardId);
     for (const cardId of body.candidates) {
       expect(profileIds).toContain(cardId);
@@ -34,7 +36,9 @@ describe("dream route handlers", () => {
   it("asks the user to rewrite an unmatched wish instead of returning a random pair", async () => {
     const response = await candidates(jsonRequest({ wish: "云朵落在雨后石头背面" }));
     expect(response.status).toBe(200);
-    const body = candidateResponseSchema.parse(await response.json());
+    const raw = await response.json();
+    expect(raw).not.toHaveProperty("candidateScores");
+    const body = candidateResponseSchema.parse(raw);
     expect(body.status).toBe("needs_detail");
   });
 

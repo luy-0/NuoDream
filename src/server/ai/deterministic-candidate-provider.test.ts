@@ -22,6 +22,8 @@ describe("deterministic candidate provider", () => {
     expect(response.candidates[0]).toBe(LIUYI);
     expect(new Set(response.candidates).size).toBe(2);
     expect(response.provider).toBe("deterministic-local");
+    // Keyword hits are not Jev probabilities and must never be exposed as scores.
+    expect(response.candidateScores).toBeNull();
     for (const cardId of response.candidates) {
       expect(STORY_MATCH_PROFILES.some((profile) => profile.cardId === cardId)).toBe(true);
     }
@@ -43,7 +45,7 @@ describe("deterministic candidate provider", () => {
   it("asks for a clearer problem when fewer than two profiles have a keyword hit", async () => {
     const response = await createDeterministicCandidateProvider().selectCandidates({ wish: AMBIGUOUS_WISH }, STORY_MATCH_PROFILES);
     expect(response).toEqual({
-      schemaVersion: "1.0.0",
+      schemaVersion: "1.1.0",
       status: "needs_detail",
       provider: "deterministic-local",
       promptVersion: expect.any(String)
@@ -91,7 +93,14 @@ describe("candidate provider fallback", () => {
     const warnings: unknown[] = [];
     const primary: DreamCandidateProvider = {
       id: "fake-upstream",
-      selectCandidates: async () => ({ status: "candidates", candidates: ["dream.client.fabricated", KAILU], provider: "fake-upstream" }) as never
+      selectCandidates: async () => ({
+        schemaVersion: "1.1.0",
+        status: "candidates",
+        candidates: ["dream.client.fabricated", KAILU],
+        candidateScores: null,
+        provider: "fake-upstream",
+        promptVersion: "test"
+      }) as never
     };
     const provider = createFallbackCandidateProvider(primary, fallback, { logger: { warn: (event) => warnings.push(event) } });
     const response = await provider.selectCandidates({ wish: HELPFUL_WISH }, STORY_MATCH_PROFILES);
@@ -106,9 +115,10 @@ describe("candidate provider fallback", () => {
     const primary: DreamCandidateProvider = {
       id: "fake-upstream",
       selectCandidates: async () => ({
-        schemaVersion: "1.0.0",
+        schemaVersion: "1.1.0",
         status: "candidates",
         candidates: [KAILU, KAILU],
+        candidateScores: null,
         provider: "fake-upstream",
         promptVersion: "test"
       }) as never
@@ -118,19 +128,81 @@ describe("candidate provider fallback", () => {
     expect(response.provider).toBe("deterministic-local:fallback");
   });
 
-  it("returns the upstream answer untouched when it succeeds", async () => {
+  it("returns the upstream answer and its raw scores untouched when it succeeds", async () => {
     const primary: DreamCandidateProvider = {
       id: "fake-upstream",
       selectCandidates: async () => ({
-        schemaVersion: "1.0.0",
+        schemaVersion: "1.1.0",
         status: "candidates",
         candidates: [KAILU, LIUYI],
+        candidateScores: [{ probability: .82, round: 1 }, { probability: .31, round: 2 }],
         provider: "fake-upstream",
         promptVersion: "test"
       })
     };
     const response = await createFallbackCandidateProvider(primary, fallback).selectCandidates({ wish: HELPFUL_WISH }, STORY_MATCH_PROFILES);
     expect(response.provider).toBe("fake-upstream");
+    expect(response.status).toBe("candidates");
+    if (response.status !== "candidates") return;
+    expect(response.candidateScores).toEqual([{ probability: .82, round: 1 }, { probability: .31, round: 2 }]);
+  });
+
+  it("degrades and nulls scores when the upstream score payload is invalid", async () => {
+    const warnings: unknown[] = [];
+    const primary: DreamCandidateProvider = {
+      id: "fake-upstream",
+      selectCandidates: async () => ({
+        schemaVersion: "1.1.0",
+        status: "candidates",
+        candidates: [KAILU, LIUYI],
+        candidateScores: [{ probability: 1.2, round: 1 }, { probability: .3, round: 1 }],
+        provider: "fake-upstream",
+        promptVersion: "test"
+      }) as never
+    };
+    const response = await createFallbackCandidateProvider(primary, fallback, { logger: { warn: (event) => warnings.push(event) } })
+      .selectCandidates({ wish: HELPFUL_WISH }, STORY_MATCH_PROFILES);
+    expect(response.status).toBe("candidates");
+    if (response.status !== "candidates") return;
+    expect(response.provider).toBe("deterministic-local:fallback");
+    expect(response.candidateScores).toBeNull();
+    expect(warnings).toEqual([expect.objectContaining({ reason: "invalid_response" })]);
+  });
+
+  it("keeps needs_detail free of any score field when degraded", async () => {
+    const primary: DreamCandidateProvider = {
+      id: "failing-upstream",
+      selectCandidates: async () => { throw new Error("down"); }
+    };
+    const response = await createFallbackCandidateProvider(primary, fallback, { logger: { warn: () => undefined } })
+      .selectCandidates({ wish: AMBIGUOUS_WISH }, STORY_MATCH_PROFILES);
+    expect(response.status).toBe("needs_detail");
+    expect(response).not.toHaveProperty("candidateScores");
+    expect(response.provider).toBe("deterministic-local:fallback");
+  });
+
+  it("forces null scores on every degraded answer, even if the fallback reports numbers", async () => {
+    const primary: DreamCandidateProvider = {
+      id: "failing-upstream",
+      selectCandidates: async () => { throw new Error("down"); }
+    };
+    const scoringFallback: DreamCandidateProvider = {
+      id: "fake-fallback",
+      selectCandidates: async () => ({
+        schemaVersion: "1.1.0",
+        status: "candidates",
+        candidates: [KAILU, LIUYI],
+        candidateScores: [{ probability: .5, round: 1 }, { probability: .4, round: 1 }],
+        provider: "fake-fallback",
+        promptVersion: "test"
+      })
+    };
+    const response = await createFallbackCandidateProvider(primary, scoringFallback, { logger: { warn: () => undefined } })
+      .selectCandidates({ wish: HELPFUL_WISH }, STORY_MATCH_PROFILES);
+    expect(response.status).toBe("candidates");
+    if (response.status !== "candidates") return;
+    expect(response.provider).toBe("fake-fallback:fallback");
+    expect(response.candidateScores).toBeNull();
   });
 
   it("rejects when the timeout elapses and the work never settles", async () => {

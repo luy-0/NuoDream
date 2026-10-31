@@ -54,26 +54,93 @@ async function requestCandidates(wish: string, signal: AbortSignal): Promise<Can
   return candidateResponseSchema.parse(await response.json());
 }
 
+function RitualQuestion({
+  phase,
+  name,
+  initialName,
+  initialWish,
+  notice,
+  error,
+  onSubmitName,
+  onSubmitWish
+}: {
+  phase: "name" | "wish";
+  name: string;
+  initialName: string;
+  initialWish: string;
+  notice: string;
+  error: string;
+  onSubmitName: (name: string) => void;
+  onSubmitWish: (wish: string) => void;
+}) {
+  // The restored draft remounts this component with a new key after hydration.
+  const [nameInput, setNameInput] = useState(initialName);
+  const [wishInput, setWishInput] = useState(initialWish);
+  return <section className="ritual-question" aria-live="polite">
+    <span>{phase === "name" ? "问 · 名" : "问 · 心"}</span>
+    <h1>{phase === "name" ? "来者何人？" : `${name}，此刻何事令你止步？`}</h1>
+    <p>{phase === "name" ? "名字是你在幻梦里留下的第一道声音。" : "说出现实中最想面对的一件事，坛前会为你请出两面，由你选定一场。"}</p>
+    {notice ? <p className="ritual-notice" role="status">{notice}</p> : null}
+    <form
+      className="ritual-input-panel"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (phase === "name") onSubmitName(nameInput);
+        else onSubmitWish(wishInput);
+      }}
+    >
+      {phase === "name"
+        ? <input aria-label="你的名字" autoFocus autoComplete="off" maxLength={80} placeholder="在此留名" value={nameInput} onChange={(event) => setNameInput(event.target.value)} />
+        : <textarea aria-label="现实困惑" autoFocus maxLength={280} rows={3} placeholder="例如：我害怕踏出第一步……" value={wishInput} onChange={(event) => setWishInput(event.target.value)} />}
+      <button type="submit" aria-label="继续">→</button>
+    </form>
+    {error ? <p className="ritual-error" role="alert">{error}</p> : null}
+  </section>;
+}
+
 export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
   const router = useRouter();
-  const [state, dispatch] = useReducer(reducer, undefined, () => typeof window === "undefined" ? createInitialGetFaceRitualSession() : (readGetFaceRitualSession() ?? createInitialGetFaceRitualSession()));
-  const [nameInput, setNameInput] = useState(state.name);
-  const [wishInput, setWishInput] = useState(state.wish);
+  // SSR and the first client render must match; sessionStorage is restored
+  // after mount instead of inside the initializer.
+  const [state, dispatch] = useReducer(reducer, undefined, createInitialGetFaceRitualSession);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [matchError, setMatchError] = useState("");
   const [revealedCardId, setRevealedCardId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [chosenCandidateId, setChosenCandidateId] = useState<string | null>(null);
   const selectingRef = useRef(false);
+  const choiceTimerRef = useRef(0);
+  const restoreRef = useRef<{ restored: GetFaceRitualSession | null; applied: boolean }>({ restored: null, applied: false });
 
   const candidateCardIds = state.candidateCardIds;
   const choiceCards = resolveChoiceCards(candidateCardIds ?? []);
-  const candidateMaskIndexes = choiceCards.map((card) => card.maskIndex);
   const selectedStoryMask = state.cardId ? getRitualStoryMask(state.cardId) : null;
   const selected = state.selectedMaskIndex ?? 0;
 
-  useEffect(() => { writeGetFaceRitualSession(state); }, [state]);
+  useEffect(() => {
+    const restored = readGetFaceRitualSession();
+    if (restored) {
+      restoreRef.current.restored = restored;
+      dispatch({ type: "restore", state: restored });
+    } else {
+      restoreRef.current.applied = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    const tracker = restoreRef.current;
+    // Do not persist the initial name state over a stored session while the
+    // post-mount restore is still pending.
+    if (tracker.restored && !tracker.applied) {
+      if (JSON.stringify(state) !== JSON.stringify(tracker.restored)) return;
+      tracker.applied = true;
+    }
+    writeGetFaceRitualSession(state);
+  }, [state]);
+
   useEffect(() => { selectingRef.current = false; }, [state.phase]);
+  useEffect(() => () => window.clearTimeout(choiceTimerRef.current), []);
 
   useEffect(() => {
     if (state.phase !== "matching") return;
@@ -147,18 +214,16 @@ export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
     };
   }, [router, state]);
 
-  const submitName = useCallback((event: React.FormEvent) => {
-    event.preventDefault();
-    if (!nameInput.trim()) return setError("请留下你的名字。");
-    setError(""); dispatch({ type: "nameSubmitted", name: nameInput });
-  }, [nameInput]);
+  const submitName = useCallback((value: string) => {
+    if (!value.trim()) return setError("请留下你的名字。");
+    setError(""); dispatch({ type: "nameSubmitted", name: value });
+  }, []);
 
-  const submitWish = useCallback((event: React.FormEvent) => {
-    event.preventDefault();
-    if (wishInput.trim().length < 2) return setError("请说出至少两个字的现实困惑。");
-    setError(""); setNotice(""); setMatchError("");
-    dispatch({ type: "wishSubmitted", wish: wishInput });
-  }, [wishInput]);
+  const submitWish = useCallback((value: string) => {
+    if (value.trim().length < 2) return setError("请说出至少两个字的现实困惑。");
+    setError(""); setNotice(""); setMatchError(""); setChosenCandidateId(null);
+    dispatch({ type: "wishSubmitted", wish: value });
+  }, []);
 
   const chooseCandidate = useCallback((cardId: string) => {
     if (selectingRef.current || state.phase !== "choosing" || !state.candidateCardIds) return;
@@ -178,11 +243,17 @@ export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
       // Storage can be unavailable; the ritual must not freeze on the cards.
     }
     void preloadMatchedDreamResources(cardId, "first-act");
-    dispatch({ type: "chooseCandidate", cardId });
+    // Let the chosen card lift and the other one retire before the reveal.
+    setChosenCandidateId(cardId);
+    window.clearTimeout(choiceTimerRef.current);
+    choiceTimerRef.current = window.setTimeout(() => {
+      dispatch({ type: "chooseCandidate", cardId });
+    }, prefersReducedMotion() ? 0 : 240);
   }, [state]);
 
   const returnToWish = useCallback(() => {
-    setMatchError(""); setNotice(""); setError("");
+    window.clearTimeout(choiceTimerRef.current);
+    setMatchError(""); setNotice(""); setError(""); setChosenCandidateId(null);
     dispatch({ type: "returnToWish" });
   }, []);
 
@@ -194,27 +265,61 @@ export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
     <header className="get-face-header"><small>龙 · 坛 · 请 · 面</small></header>
     <span className="get-face-brand-mark"><Image className="get-face-brand-mark-image" src="/dream-assets/brand/nuo-dream-logo-dark.png" alt="大傩幻梦品牌标识" fill sizes="(max-width: 700px) 124px, 190px" loading="eager" /></span>
 
-    {(state.phase === "name" || state.phase === "wish") ? <section className="ritual-question" aria-live="polite">
-      <span>{state.phase === "name" ? "问 · 名" : "问 · 心"}</span>
-      <h1>{state.phase === "name" ? "来者何人？" : `${state.name}，此刻何事令你止步？`}</h1>
-      <p>{state.phase === "name" ? "名字是你在幻梦里留下的第一道声音。" : "说出现实中最想面对的一件事，坛前会为你请出两面，由你选定一场。"}</p>
-      {notice ? <p className="ritual-notice" role="status">{notice}</p> : null}
-      <form className="ritual-input-panel" onSubmit={state.phase === "name" ? submitName : submitWish}>
-        {state.phase === "name" ? <input aria-label="你的名字" autoFocus autoComplete="off" maxLength={80} placeholder="在此留名" value={nameInput} onChange={(event) => setNameInput(event.target.value)} /> : <textarea aria-label="现实困惑" autoFocus maxLength={280} rows={3} placeholder="例如：我害怕踏出第一步……" value={wishInput} onChange={(event) => setWishInput(event.target.value)} />}
-        <button type="submit" aria-label="继续">→</button>
-      </form>
-      {error ? <p className="ritual-error" role="alert">{error}</p> : null}
+    {(state.phase === "name" || state.phase === "wish") ? <RitualQuestion
+      key={`${state.phase}:${state.name}:${state.wish}`}
+      phase={state.phase}
+      name={state.name}
+      initialName={state.name}
+      initialWish={state.wish}
+      notice={notice}
+      error={error}
+      onSubmitName={submitName}
+      onSubmitWish={submitWish}
+    /> : null}
+
+    {state.phase === "choosing" ? <section className="choice-stage" aria-live="polite" aria-label="两面照见，请选择一面进入幻梦">
+      <div className="choice-copy">
+        <span>择 · 面</span>
+        <h1>两面照见</h1>
+        <p>两面已落在案前，翻开你更想面对的那一张。</p>
+      </div>
+      <div className="choice-grid" role="group" aria-label="选择一面进入幻梦">
+        {choiceCards.map((card) => {
+          const chosen = chosenCandidateId === card.cardId;
+          const retired = chosenCandidateId !== null && !chosen;
+          return <button
+            key={card.cardId}
+            type="button"
+            className={`choice-card${chosen ? " is-chosen" : ""}${retired ? " is-dismissed" : ""}`}
+            aria-label={`${card.maskName}：${card.prompt}`}
+            aria-disabled={chosenCandidateId !== null || undefined}
+            onClick={() => chooseCandidate(card.cardId)}
+          >
+            <span className="choice-card-inner">
+              <span className="choice-card-back" aria-hidden="true" />
+              <span className="choice-card-front">
+                <span className="choice-card-mask"><Image src={card.thumbnail} alt="" width={240} height={320} loading="eager" unoptimized /></span>
+                <span className="choice-card-veil" aria-hidden="true" />
+                <span className="choice-card-frame" aria-hidden="true" />
+                <span className="choice-card-meta">
+                  <span className="choice-card-name">{card.maskName}</span>
+                  <span className="choice-card-prompt">{card.prompt}</span>
+                </span>
+              </span>
+            </span>
+          </button>;
+        })}
+      </div>
+      <button type="button" className="choice-reset" onClick={returnToWish}>都不贴近，重新描述</button>
     </section> : null}
 
-    {(state.phase === "matching" || state.phase === "choosing" || state.phase === "mask" || state.phase === "wearing") ? <section className="mask-match-stage" aria-live="polite">
-      <div className="mask-orbit" aria-label={state.phase === "choosing" ? "两面傩面供你选择" : "八面傩面正在匹配"}>
+    {(state.phase === "matching" || state.phase === "mask" || state.phase === "wearing") ? <section className="mask-match-stage" aria-live="polite">
+      <div className="mask-orbit" aria-label="八面傩面正在匹配">
         {getFaceData.masks.slice(0, RITUAL_MASK_THUMBNAILS.length).map((mask, index) => {
           const classes = ["orbit-mask", `orbit-mask-${index}`];
-          const candidatePosition = state.phase === "choosing" ? candidateMaskIndexes.indexOf(index) : -1;
-          if (candidatePosition >= 0) classes.push("candidate", `candidate-${candidatePosition}`);
           const isSelected = state.phase === "mask" || state.phase === "wearing" ? index === selected : false;
           if (isSelected) classes.push("selected");
-          const dismissed = state.phase === "choosing" ? candidatePosition < 0 : state.phase !== "matching" && !isSelected;
+          const dismissed = state.phase !== "matching" && !isSelected;
           if (dismissed) classes.push("dismissed");
           return <div
             aria-label={mask.name}
@@ -229,22 +334,7 @@ export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
         })}
       </div>
 
-      {state.phase === "choosing" ? <div className="choice-stage">
-        <div className="choice-copy">
-          <span>择 · 面</span>
-          <h1>两面照见</h1>
-          <p>这是两种可以选择的照面方式。选定一场，再入戏。</p>
-        </div>
-        <div className="choice-grid" role="group" aria-label="选择一面进入幻梦">
-          {choiceCards.map((card) => <button key={card.cardId} type="button" className="choice-card" onClick={() => chooseCandidate(card.cardId)}>
-            <span className="choice-card-mask"><Image src={card.thumbnail} alt="" width={150} height={200} loading="eager" unoptimized /></span>
-            <span className="choice-card-name">{card.maskName}</span>
-            <span className="choice-card-story">《{card.storyTitle}》</span>
-            <span className="choice-card-prompt">{card.prompt}</span>
-          </button>)}
-        </div>
-        <button type="button" className="choice-reset" onClick={returnToWish}>都不贴近，重新描述</button>
-      </div> : <div className="match-copy">
+      <div className="match-copy">
         <span>{state.phase === "matching" ? "识 · 惑 · 请 · 面" : "得 · 面"}</span>
         <h1>{state.phase === "matching" ? "八面寻心" : (selectedStoryMask?.maskName ?? getFaceData.masks[selected]?.name ?? "")}</h1>
         {state.phase === "matching" && matchError ? <>
@@ -255,7 +345,7 @@ export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
           </div>
         </> : <p>{state.phase === "matching" ? "面具正在围绕你的困惑旋转，两面的轮廓正从八面中浮现。" : `职司 · ${selectedStoryMask?.duty ?? ""}`}</p>}
         {state.phase === "mask" && revealedCardId === state.cardId ? <button type="button" className="enter-dream-button" onClick={() => dispatch({ type: "enterStory" })}>入 戏</button> : null}
-      </div>}
+      </div>
       {state.phase === "wearing" ? <div className="wearing-flash" aria-hidden="true" /> : null}
     </section> : null}
 

@@ -1,9 +1,24 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+const siteName = "大傩幻梦";
+const siteDescription = "《大傩幻梦》：以贵州傩文化为灵感的互动幻梦体验。";
+
 export const metadata: Metadata = {
-  title: "入梦黔境",
-  description: "以贵州傩文化为灵感的互动幻梦体验"
+  title: siteName,
+  applicationName: siteName,
+  description: siteDescription,
+  openGraph: {
+    title: siteName,
+    description: siteDescription,
+    siteName,
+    type: "website"
+  },
+  twitter: {
+    card: "summary",
+    title: siteName,
+    description: siteDescription
+  }
 };
 
 export const viewport: Viewport = {

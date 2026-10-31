@@ -12,7 +12,7 @@ vi.mock("@/features/codex/codex-experience", () => ({
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const card = requireDreamCard("dream.kailu-jiangjun.du-shan-ji");
-const session: GetFaceRitualSession = { schemaVersion: "2.0.0", phase: "complete", name: "阿渡", wish: "我想找到一条路", selectedMaskIndex: 0, cardId: card.meta.id };
+const session: GetFaceRitualSession = { schemaVersion: "3.0.0", phase: "complete", name: "阿渡", wish: "我想找到一条路", candidateCardIds: [card.meta.id, "dream.liuyi.yi-xin-du-shui"], candidateSource: { provider: "deterministic-local", promptVersion: "get-face.profiles.v1" }, selectedMaskIndex: 0, cardId: card.meta.id };
 
 function storage() {
   const values = new Map<string, string>();

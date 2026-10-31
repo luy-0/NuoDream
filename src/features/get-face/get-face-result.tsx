@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DreamCard } from "@/domain/dream-card";
 import { createCodexCollection, type CodexEntryInput, type StorageLike } from "@/domain/codex";
-import { getFaceData, getStoryOmen } from "@/domain/get-face";
+import { getFaceData, getStoryOmen, ritualMaskIndex } from "@/domain/get-face";
 import type { GetFaceRitualSession } from "@/domain/get-face/session";
 import { CodexExperience } from "@/features/codex/codex-experience";
 import "./get-face-result.css";
@@ -44,6 +44,9 @@ const STORY_REVEAL_ASSET: Record<string, string> = {
 };
 
 function storyMaskIndex(card: DreamCard, session: GetFaceRitualSession): number {
+  // The ritual choice cards and this reveal share one cardId → 面具 table.
+  const sharedIndex = ritualMaskIndex(card.meta.id);
+  if (sharedIndex !== null) return sharedIndex;
   const mappedMaskId = STORY_MASK_ID[card.meta.id];
   if (mappedMaskId) {
     const mappedIndex = getFaceData.masks.findIndex((mask) => mask.id === mappedMaskId);

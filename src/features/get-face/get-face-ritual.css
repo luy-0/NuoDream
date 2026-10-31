@@ -36,6 +36,44 @@
 .match-copy h1 { margin: 10px 0 4px; font-size: clamp(30px, 4vw, 54px); }
 .match-copy p { margin: 0 auto 18px; color: rgba(239,225,193,.66); font: 13px/1.8 system-ui, sans-serif; }
 .enter-dream-button { padding: 12px 34px; border: 1px solid #dbb469; background: rgba(53,36,18,.82); color: #f1d698; letter-spacing: .55em; cursor: pointer; box-shadow: 0 0 28px rgba(212,164,79,.18); animation: ritual-appear .6s ease both; }
+.ritual-notice { max-width: 620px; margin: -16px 0 22px !important; color: #d9b979 !important; font-size: 13px !important; }
+.get-face-ritual[data-phase="choosing"] { overflow-y: auto; overscroll-behavior: contain; }
+.choice-stage { position: relative; z-index: 12; display: grid; align-content: center; justify-items: center; gap: clamp(16px, 2.6vh, 30px); width: 100%; min-height: 100svh; padding: clamp(76px, 11vh, 132px) 24px clamp(26px, 4vh, 48px); text-align: center; animation: ritual-appear .6s ease both; }
+.choice-copy > span { color: #d2a858; letter-spacing: .64em; font-size: 11px; }
+.choice-copy h1 { margin: 10px 0 8px; color: #f0d79e; font-size: clamp(26px, 3.2vw, 44px); font-weight: 400; letter-spacing: .18em; text-shadow: 0 5px 26px #000; }
+.choice-copy p { margin: 0; color: rgba(239,227,201,.62); font: 12px/1.8 system-ui, sans-serif; }
+.choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(14px, 2vw, 34px); width: min(900px, 92vw, 82vh); }
+.choice-card { position: relative; aspect-ratio: 2 / 3; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; perspective: 1200px; transition: transform .22s ease, opacity .22s ease, filter .22s ease; }
+.choice-card:hover { transform: translateY(-4px); }
+.choice-card:focus-visible { outline: 2px solid #e2bb72; outline-offset: 4px; }
+.choice-card-inner { position: absolute; inset: 0; transform-style: preserve-3d; animation: choice-deal .52s cubic-bezier(.2,.72,.2,1) both; }
+.choice-card:nth-child(1) { --deal-x: 46%; --deal-y: 3%; --deal-r: 5deg; }
+.choice-card:nth-child(2) { --deal-x: -46%; --deal-y: 5%; --deal-r: -5deg; }
+.choice-card:nth-child(2) .choice-card-inner { animation-delay: .1s; }
+.choice-card-front, .choice-card-back { position: absolute; inset: 0; display: block; overflow: hidden; border-radius: 9px; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.choice-card-front { border: 1px solid rgba(214,175,89,.34); background: radial-gradient(circle at 50% 30%, rgba(73,111,105,.18), transparent 46%), linear-gradient(150deg, rgba(20,29,32,.98), rgba(7,12,15,.99) 74%); box-shadow: inset 0 0 0 1px rgba(240,215,155,.04), inset 0 -40px 64px rgba(0,0,0,.5), 0 18px 38px rgba(0,0,0,.48); }
+.choice-card-back { transform: rotateY(180deg); border: 1px solid rgba(214,175,89,.42); background: radial-gradient(circle at 50% 42%, rgba(113,67,26,.26), transparent 44%), repeating-linear-gradient(102deg, rgba(222,194,126,.02) 0 1px, transparent 1px 8px), url("/dream-assets/ui/codex/card-back-seal-v2.svg") center / 72% no-repeat, linear-gradient(152deg, #19252a, #091115 72%); box-shadow: inset 0 0 42px rgba(181,123,40,.1), 0 18px 36px rgba(0,0,0,.5); }
+.choice-card-mask { position: absolute; z-index: 1; inset: 0; display: block; padding: 12% 11% 34%; }
+.choice-card-mask img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 10px rgba(215,173,81,.26)) drop-shadow(0 12px 18px rgba(0,0,0,.5)); transform: scale(.98); transition: transform .3s ease, filter .3s ease; }
+.choice-card-veil { position: absolute; z-index: 2; inset: 0; background: linear-gradient(180deg, rgba(5,10,12,.02) 40%, rgba(5,9,11,.2) 60%, rgba(4,8,10,.92) 100%); }
+.choice-card-frame { position: absolute; z-index: 5; inset: 0; background: url("/dream-assets/ui/codex/card-front-frame-v2.svg") center / 100% 100% no-repeat; pointer-events: none; }
+.choice-card-meta { position: absolute; z-index: 6; inset: auto 10% 11%; display: grid; gap: 6px; text-align: center; }
+.choice-card-name { color: #f2ddaa; font-family: "STSong", "Songti SC", serif; font-size: clamp(17px, 1.5vw, 25px); line-height: 1.2; letter-spacing: .18em; text-shadow: 0 2px 10px rgba(0,0,0,.8); }
+.choice-card-prompt { color: rgba(242,231,207,.9); font: clamp(11.5px, .92vw, 15px)/1.6 system-ui, sans-serif; text-shadow: 0 1px 8px rgba(0,0,0,.9); }
+.choice-card:hover .choice-card-mask img, .choice-card:focus-visible .choice-card-mask img { transform: scale(1.03); filter: drop-shadow(0 0 16px rgba(230,189,93,.4)) drop-shadow(0 14px 20px rgba(0,0,0,.55)); }
+.choice-card:focus-visible .choice-card-front { box-shadow: inset 0 0 0 1px rgba(240,215,155,.1), inset 0 -40px 64px rgba(0,0,0,.5), 0 0 0 2px #e2bb72, 0 0 30px rgba(230,193,116,.3); }
+.choice-card.is-chosen { z-index: 3; transform: translateY(-14px) scale(1.015); }
+.choice-card.is-chosen .choice-card-front { box-shadow: inset 0 0 0 1px rgba(240,215,155,.16), inset 0 -40px 64px rgba(0,0,0,.46), 0 0 0 2px rgba(240,205,130,.85), 0 0 44px rgba(230,190,110,.42); filter: brightness(1.08); }
+.choice-card.is-dismissed { opacity: 0; transform: translateY(10px) scale(.94); pointer-events: none; }
+@keyframes choice-deal {
+  0% { opacity: 0; transform: translate(var(--deal-x), var(--deal-y)) rotate(var(--deal-r)) rotateY(180deg) scale(.88); }
+  14% { opacity: 1; }
+  58% { transform: translate(calc(var(--deal-x) * .35), calc(var(--deal-y) * .45)) rotate(calc(var(--deal-r) * .4)) rotateY(88deg) scale(.97); }
+  100% { opacity: 1; transform: translate(0, 0) rotate(0deg) rotateY(0deg) scale(1); }
+}
+.choice-reset { justify-self: center; padding: 7px 14px; border: 1px solid rgba(208,173,98,.3); border-radius: 999px; background: rgba(8,7,6,.5); color: rgba(238,228,211,.72); font: 11px/1 system-ui, sans-serif; letter-spacing: .12em; cursor: pointer; }
+.choice-reset:hover, .choice-reset:focus-visible { border-color: rgba(208,173,98,.68); color: #d0ad62; outline: none; }
+.match-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
 .get-face-ritual[data-phase="wearing"] .orbit-mask.selected { animation: mask-wear .92s cubic-bezier(.76,.02,.72,.2) both; }
 .wearing-flash { position: fixed; inset: 0; z-index: 20; background: radial-gradient(circle, rgba(244,222,172,.9), rgba(16,11,6,.97) 58%); pointer-events: none; animation: wearing-blackout .92s ease-in both; }
 .get-face-return { position: absolute; z-index: 30; top: 20px; left: 24px; padding: 8px 12px; border: 1px solid rgba(208,173,98,.28); border-radius: 999px; background: rgba(8,7,6,.58); color: rgba(238,228,211,.72); cursor: pointer; font: 11px/1 system-ui, sans-serif; letter-spacing: .12em; backdrop-filter: blur(8px); transition: color .2s ease, border-color .2s ease, background .2s ease; }
@@ -45,5 +83,9 @@
 @keyframes mask-orbit { from { transform: translate(-50%,-50%) rotateY(0deg) translateZ(330px) scale(.78); opacity: .4; } 25% { opacity: .95; } 50% { transform: translate(-50%,-50%) rotateY(180deg) translateZ(330px) scale(1); opacity: .35; } 75% { opacity: .72; } to { transform: translate(-50%,-50%) rotateY(360deg) translateZ(330px) scale(.78); opacity: .4; } }
 @keyframes mask-wear { 0% { transform: translate(-50%,-54%) translateZ(180px) scale(1.42); } 68% { opacity: 1; } 100% { transform: translate(-50%,-50%) translateZ(1000px) scale(7.2); opacity: 0; } }
 @keyframes wearing-blackout { 0%, 50% { opacity: 0; } 76% { opacity: .6; } 100% { opacity: 1; } }
-@media (max-width: 700px) { .get-face-header { inset: 18px 18px auto; } .get-face-return { top: 12px; left: 12px; display: grid; width: 38px; height: 38px; place-items: center; padding: 0; overflow: hidden; font-size: 0; } .get-face-return::before { content: "←"; font: 18px/1 system-ui, sans-serif; } .mask-orbit { top: 42%; } .orbit-mask { width: 36vw; } .match-copy { bottom: 8vh; } .ritual-question h1 { letter-spacing: .05em; } }
-@media (prefers-reduced-motion: reduce) { .get-face-mist, .get-face-ritual[data-phase="matching"] .orbit-mask, .get-face-ritual[data-phase="wearing"] .orbit-mask.selected, .wearing-flash { animation-duration: .01ms; } }
+@media (max-width: 700px) { .get-face-header { inset: 18px 18px auto; } .get-face-return { top: 12px; left: 12px; display: grid; width: 38px; height: 38px; place-items: center; padding: 0; overflow: hidden; font-size: 0; } .get-face-return::before { content: "←"; font: 18px/1 system-ui, sans-serif; } .mask-orbit { top: 42%; } .orbit-mask { width: 36vw; } .match-copy { bottom: 8vh; } .ritual-question h1 { letter-spacing: .05em; } .choice-stage { gap: 12px; padding: 70px 14px 20px; } .choice-copy h1 { margin: 4px 0; font-size: 24px; } .choice-copy p { font-size: 11px; } .choice-grid { gap: 10px; width: 94vw; } .choice-card-mask { padding: 14% 8% 40%; } .choice-card-meta { inset: auto 8% 11.5%; gap: 4px; } .choice-card-name { font-size: 16px; letter-spacing: .12em; } .choice-card-prompt { font-size: 11.5px; line-height: 1.55; } }
+@media (max-width: 339px) { .choice-stage { align-content: start; } .choice-grid { grid-template-columns: 1fr; width: min(72vw, 250px); } }
+@media (max-height: 720px) { .choice-stage { gap: 12px; padding-top: 64px; padding-bottom: 18px; } .choice-copy h1 { margin: 4px 0; font-size: clamp(22px, 3vw, 34px); } }
+@media (max-height: 560px) { .choice-stage { align-content: start; } }
+@media (max-width: 1100px) { .get-face-ritual[data-phase="choosing"] .get-face-brand-mark { display: none; } }
+@media (prefers-reduced-motion: reduce) { .get-face-mist, .get-face-ritual[data-phase="matching"] .orbit-mask, .get-face-ritual[data-phase="wearing"] .orbit-mask.selected, .wearing-flash, .choice-stage { animation-duration: .01ms; } .orbit-mask, .choice-card, .choice-card-mask img { transition-duration: .01ms; } .choice-card-inner { animation-duration: .01ms; animation-delay: 0s; } }

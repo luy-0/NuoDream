@@ -1,11 +1,20 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createDreamSession, matchResponseSchema, type MatchResponse } from "@/domain/dream-session";
+import { createChosenDreamSession } from "@/domain/dream-session";
 import { writeDreamSession } from "@/domain/dream-session/storage";
-import { getFaceData, resolveVisual, RITUAL_MASK_THUMBNAILS } from "@/domain/get-face";
+import {
+  CANDIDATE_PROMPT_VERSION,
+  candidateResponseSchema,
+  getFaceData,
+  getRitualStoryMask,
+  isCandidateSuccess,
+  resolveChoiceCards,
+  RITUAL_MASK_THUMBNAILS,
+  type CandidateResponse
+} from "@/domain/get-face";
 import { preloadMatchedDreamResources } from "@/features/preload/resource-preloader";
 import {
   clearGetFaceRitualSession,
@@ -18,67 +27,167 @@ import {
 } from "@/domain/get-face/session";
 import "./get-face-ritual.css";
 
-const CARD_IDS = [
-  "dream.kailu-jiangjun.du-shan-ji",
-  "dream.xianfeng-xiaojie.yi-suo-hua",
-  "dream.jiu-wei-tu-di-shen.di-jiu-tan",
-  "dream.tangshi-taipo.gui-zheng-ji",
-  "dream.goubu-panguan.he-ye-ji",
-  "dream.saodi-heshang.yu-huo-ji",
-  "dream.liuyi.yi-xin-du-shui",
-  "dream.abumo.huang-nian-kai-huo"
-] as const;
+const CANDIDATE_REQUEST_TIMEOUT_MS = 22_000;
+const MIN_MATCHING_DISPLAY_MS = 1450;
+const REDUCED_REVEAL_MS = 20;
+const REVEAL_MS = 520;
+const WEARING_REDUCED_MS = 40;
+const WEARING_MS = 920;
 
-const MASK_TITLES = ["开路将军", "先锋小姐", "九位土地神", "唐氏太婆", "勾簿判官", "扫地和尚", "柳毅", "阿布摩"] as const;
-const MASK_DUTIES = ["勇气与开始", "承愿与践行", "寻找位置", "守界与重建", "归档旧事", "清理余响", "传递真意", "荒年留种"] as const;
+/** Candidate source used when a restored session no longer knows the provider. */
+const RESTORED_CANDIDATE_SOURCE = { provider: "restored-session", promptVersion: CANDIDATE_PROMPT_VERSION } as const;
 
 function reducer(state: GetFaceRitualSession, event: GetFaceRitualEvent) { return transitionGetFaceRitual(state, event); }
-function maskIndexForCard(cardId: string): number { const index = CARD_IDS.indexOf(cardId as (typeof CARD_IDS)[number]); return index < 0 ? 0 : index; }
 
-function localMatch(wish: string): MatchResponse {
-  const maskIndex = resolveVisual(getFaceData, wish);
-  return { schemaVersion: "1.0.0", cardId: CARD_IDS[maskIndex], provider: "deterministic-local", confidence: .72, reason: "本地演示规则已找到与此刻困惑相照的面具。" };
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
 }
 
-async function requestMatch(wish: string): Promise<MatchResponse> {
-  try {
-    const response = await fetch("/api/dream/match", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wish }) });
-    if (!response.ok) throw new Error("match unavailable");
-    return matchResponseSchema.parse(await response.json());
-  } catch { return localMatch(wish); }
+async function requestCandidates(wish: string, signal: AbortSignal): Promise<CandidateResponse> {
+  const response = await fetch("/api/dream/candidates", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ wish }),
+    signal
+  });
+  if (!response.ok) throw new Error(`candidates:${response.status}`);
+  return candidateResponseSchema.parse(await response.json());
+}
+
+function RitualQuestion({
+  phase,
+  name,
+  initialName,
+  initialWish,
+  notice,
+  error,
+  onSubmitName,
+  onSubmitWish
+}: {
+  phase: "name" | "wish";
+  name: string;
+  initialName: string;
+  initialWish: string;
+  notice: string;
+  error: string;
+  onSubmitName: (name: string) => void;
+  onSubmitWish: (wish: string) => void;
+}) {
+  // The restored draft remounts this component with a new key after hydration.
+  const [nameInput, setNameInput] = useState(initialName);
+  const [wishInput, setWishInput] = useState(initialWish);
+  return <section className="ritual-question" aria-live="polite">
+    <span>{phase === "name" ? "问 · 名" : "问 · 心"}</span>
+    <h1>{phase === "name" ? "来者何人？" : `${name}，此刻何事令你止步？`}</h1>
+    <p>{phase === "name" ? "名字是你在幻梦里留下的第一道声音。" : "说出现实中最想面对的一件事，坛前会为你请出两面，由你选定一场。"}</p>
+    {notice ? <p className="ritual-notice" role="status">{notice}</p> : null}
+    <form
+      className="ritual-input-panel"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (phase === "name") onSubmitName(nameInput);
+        else onSubmitWish(wishInput);
+      }}
+    >
+      {phase === "name"
+        ? <input aria-label="你的名字" autoFocus autoComplete="off" maxLength={80} placeholder="在此留名" value={nameInput} onChange={(event) => setNameInput(event.target.value)} />
+        : <textarea aria-label="现实困惑" autoFocus maxLength={280} rows={3} placeholder="例如：我害怕踏出第一步……" value={wishInput} onChange={(event) => setWishInput(event.target.value)} />}
+      <button type="submit" aria-label="继续">→</button>
+    </form>
+    {error ? <p className="ritual-error" role="alert">{error}</p> : null}
+  </section>;
 }
 
 export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
   const router = useRouter();
-  const [state, dispatch] = useReducer(reducer, undefined, () => typeof window === "undefined" ? createInitialGetFaceRitualSession() : (readGetFaceRitualSession() ?? createInitialGetFaceRitualSession()));
-  const [nameInput, setNameInput] = useState(state.name);
-  const [wishInput, setWishInput] = useState(state.wish);
+  // SSR and the first client render must match; sessionStorage is restored
+  // after mount instead of inside the initializer.
+  const [state, dispatch] = useReducer(reducer, undefined, createInitialGetFaceRitualSession);
   const [error, setError] = useState("");
-  const [matchReady, setMatchReady] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [matchError, setMatchError] = useState("");
+  const [revealedCardId, setRevealedCardId] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [chosenCandidateId, setChosenCandidateId] = useState<string | null>(null);
+  const selectingRef = useRef(false);
+  const choiceTimerRef = useRef(0);
+  const restoreRef = useRef<{ restored: GetFaceRitualSession | null; applied: boolean }>({ restored: null, applied: false });
 
-  useEffect(() => { writeGetFaceRitualSession(state); }, [state]);
+  const candidateCardIds = state.candidateCardIds;
+  const choiceCards = resolveChoiceCards(candidateCardIds ?? []);
+  const selectedStoryMask = state.cardId ? getRitualStoryMask(state.cardId) : null;
+  const selected = state.selectedMaskIndex ?? 0;
+
+  useEffect(() => {
+    const restored = readGetFaceRitualSession();
+    if (restored) {
+      restoreRef.current.restored = restored;
+      dispatch({ type: "restore", state: restored });
+    } else {
+      restoreRef.current.applied = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    const tracker = restoreRef.current;
+    // Do not persist the initial name state over a stored session while the
+    // post-mount restore is still pending.
+    if (tracker.restored && !tracker.applied) {
+      if (JSON.stringify(state) !== JSON.stringify(tracker.restored)) return;
+      tracker.applied = true;
+    }
+    writeGetFaceRitualSession(state);
+  }, [state]);
+
+  useEffect(() => { selectingRef.current = false; }, [state.phase]);
+  useEffect(() => () => window.clearTimeout(choiceTimerRef.current), []);
 
   useEffect(() => {
     if (state.phase !== "matching") return;
     let active = true;
+    const controller = new AbortController();
     const started = Date.now();
-    void requestMatch(state.wish).then((match) => {
-      const remaining = Math.max(0, 1450 - (Date.now() - started));
-      window.setTimeout(() => {
+    const timeout = window.setTimeout(() => controller.abort(), CANDIDATE_REQUEST_TIMEOUT_MS);
+    let revealTimer = 0;
+
+    void requestCandidates(state.wish, controller.signal).then((response) => {
+      if (!active) return;
+      if (!isCandidateSuccess(response)) {
+        setNotice("还看不出两种可选择的照面方式。请把困惑写得更具体一些，再说一次。");
+        dispatch({ type: "candidatesNeedDetail" });
+        return;
+      }
+      const cards = resolveChoiceCards(response.candidates);
+      if (cards.length !== 2) throw new Error("incomplete candidates");
+      const remaining = Math.max(0, MIN_MATCHING_DISPLAY_MS - (Date.now() - started));
+      revealTimer = window.setTimeout(() => {
         if (!active) return;
-        writeDreamSession(createDreamSession(state.wish, match));
-        void preloadMatchedDreamResources(match.cardId, "first-act");
-        dispatch({ type: "matchResolved", cardId: match.cardId, maskIndex: maskIndexForCard(match.cardId) });
+        dispatch({
+          type: "candidatesResolved",
+          candidates: [cards[0].cardId, cards[1].cardId],
+          provider: response.provider,
+          promptVersion: response.promptVersion
+        });
       }, remaining);
-    });
-    return () => { active = false; };
-  }, [state.phase, state.wish]);
+    }).catch(() => {
+      if (!active) return;
+      setMatchError("坛前暂未回应。可以再问一次，或返回修改你的问题。");
+    }).finally(() => { window.clearTimeout(timeout); });
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      window.clearTimeout(revealTimer);
+      controller.abort();
+    };
+  }, [state.phase, state.wish, attempt]);
 
   useEffect(() => {
-    if (state.phase !== "mask") return;
-    const timer = window.setTimeout(() => setMatchReady(true), window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 20 : 520);
+    if (state.phase !== "mask" || !state.cardId) return;
+    const cardId = state.cardId;
+    const timer = window.setTimeout(() => setRevealedCardId(cardId), prefersReducedMotion() ? REDUCED_REVEAL_MS : REVEAL_MS);
     return () => window.clearTimeout(timer);
-  }, [state.phase]);
+  }, [state.cardId, state.phase]);
 
   useEffect(() => {
     if (state.phase !== "mask" || !state.cardId) return;
@@ -98,60 +207,144 @@ export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
       fallbackTimer = window.setTimeout(() => {
         if (window.location.pathname !== path) window.location.assign(path);
       }, 120);
-    }, window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 40 : 920);
+    }, prefersReducedMotion() ? WEARING_REDUCED_MS : WEARING_MS);
     return () => {
       window.clearTimeout(timer);
       window.clearTimeout(fallbackTimer);
     };
   }, [router, state]);
 
-  const submitName = useCallback((event: React.FormEvent) => {
-    event.preventDefault();
-    if (!nameInput.trim()) return setError("请留下你的名字。");
-    setError(""); dispatch({ type: "nameSubmitted", name: nameInput });
-  }, [nameInput]);
+  const submitName = useCallback((value: string) => {
+    if (!value.trim()) return setError("请留下你的名字。");
+    setError(""); dispatch({ type: "nameSubmitted", name: value });
+  }, []);
 
-  const submitWish = useCallback((event: React.FormEvent) => {
-    event.preventDefault();
-    if (wishInput.trim().length < 2) return setError("请说出至少两个字的现实困惑。");
-    setError(""); setMatchReady(false); dispatch({ type: "wishSubmitted", wish: wishInput });
-  }, [wishInput]);
+  const submitWish = useCallback((value: string) => {
+    if (value.trim().length < 2) return setError("请说出至少两个字的现实困惑。");
+    setError(""); setNotice(""); setMatchError(""); setChosenCandidateId(null);
+    dispatch({ type: "wishSubmitted", wish: value });
+  }, []);
 
-  const selected = state.selectedMaskIndex ?? 0;
+  const chooseCandidate = useCallback((cardId: string) => {
+    if (selectingRef.current || state.phase !== "choosing" || !state.candidateCardIds) return;
+    if (!state.candidateCardIds.includes(cardId)) return;
+    selectingRef.current = true;
+    // A refresh keeps the real candidate source; only pre-field sessions fall back.
+    const source = state.candidateSource ?? RESTORED_CANDIDATE_SOURCE;
+    try {
+      // The final single-story session exists only after an explicit choice.
+      writeDreamSession(createChosenDreamSession(state.wish, {
+        cardId,
+        candidateCardIds: state.candidateCardIds,
+        provider: source.provider,
+        promptVersion: source.promptVersion
+      }));
+    } catch {
+      // Storage can be unavailable; the ritual must not freeze on the cards.
+    }
+    void preloadMatchedDreamResources(cardId, "first-act");
+    // Let the chosen card lift and the other one retire before the reveal.
+    setChosenCandidateId(cardId);
+    window.clearTimeout(choiceTimerRef.current);
+    choiceTimerRef.current = window.setTimeout(() => {
+      dispatch({ type: "chooseCandidate", cardId });
+    }, prefersReducedMotion() ? 0 : 240);
+  }, [state]);
+
+  const returnToWish = useCallback(() => {
+    window.clearTimeout(choiceTimerRef.current);
+    setMatchError(""); setNotice(""); setError(""); setChosenCandidateId(null);
+    dispatch({ type: "returnToWish" });
+  }, []);
+
+  const retryMatching = useCallback(() => { setMatchError(""); setAttempt((value) => value + 1); }, []);
+
   return <main className="get-face-ritual" data-phase={state.phase}>
     <div className="get-face-altar" aria-hidden="true" />
     <div className="get-face-mist" aria-hidden="true" />
     <header className="get-face-header"><small>龙 · 坛 · 请 · 面</small></header>
     <span className="get-face-brand-mark"><Image className="get-face-brand-mark-image" src="/dream-assets/brand/nuo-dream-logo-dark.png" alt="大傩幻梦品牌标识" fill sizes="(max-width: 700px) 124px, 190px" loading="eager" /></span>
 
-    {(state.phase === "name" || state.phase === "wish") ? <section className="ritual-question" aria-live="polite">
-      <span>{state.phase === "name" ? "问 · 名" : "问 · 心"}</span>
-      <h1>{state.phase === "name" ? "来者何人？" : `${state.name}，此刻何事令你止步？`}</h1>
-      <p>{state.phase === "name" ? "名字是你在幻梦里留下的第一道声音。" : "说出现实中最想面对的一件事，坛前会为你请出相照的一面。"}</p>
-      <form className="ritual-input-panel" onSubmit={state.phase === "name" ? submitName : submitWish}>
-        {state.phase === "name" ? <input aria-label="你的名字" autoFocus autoComplete="off" maxLength={80} placeholder="在此留名" value={nameInput} onChange={(event) => setNameInput(event.target.value)} /> : <textarea aria-label="现实困惑" autoFocus maxLength={280} rows={3} placeholder="例如：我害怕踏出第一步……" value={wishInput} onChange={(event) => setWishInput(event.target.value)} />}
-        <button type="submit" aria-label="继续">→</button>
-      </form>
-      {error ? <p className="ritual-error" role="alert">{error}</p> : null}
+    {(state.phase === "name" || state.phase === "wish") ? <RitualQuestion
+      key={`${state.phase}:${state.name}:${state.wish}`}
+      phase={state.phase}
+      name={state.name}
+      initialName={state.name}
+      initialWish={state.wish}
+      notice={notice}
+      error={error}
+      onSubmitName={submitName}
+      onSubmitWish={submitWish}
+    /> : null}
+
+    {state.phase === "choosing" ? <section className="choice-stage" aria-live="polite" aria-label="两面照见，请选择一面进入幻梦">
+      <div className="choice-copy">
+        <span>择 · 面</span>
+        <h1>两面照见</h1>
+        <p>两面已落在案前，翻开你更想面对的那一张。</p>
+      </div>
+      <div className="choice-grid" role="group" aria-label="选择一面进入幻梦">
+        {choiceCards.map((card) => {
+          const chosen = chosenCandidateId === card.cardId;
+          const retired = chosenCandidateId !== null && !chosen;
+          return <button
+            key={card.cardId}
+            type="button"
+            className={`choice-card${chosen ? " is-chosen" : ""}${retired ? " is-dismissed" : ""}`}
+            aria-label={`${card.maskName}：${card.prompt}`}
+            aria-disabled={chosenCandidateId !== null || undefined}
+            onClick={() => chooseCandidate(card.cardId)}
+          >
+            <span className="choice-card-inner">
+              <span className="choice-card-back" aria-hidden="true" />
+              <span className="choice-card-front">
+                <span className="choice-card-mask"><Image src={card.thumbnail} alt="" width={240} height={320} loading="eager" unoptimized /></span>
+                <span className="choice-card-veil" aria-hidden="true" />
+                <span className="choice-card-frame" aria-hidden="true" />
+                <span className="choice-card-meta">
+                  <span className="choice-card-name">{card.maskName}</span>
+                  <span className="choice-card-prompt">{card.prompt}</span>
+                </span>
+              </span>
+            </span>
+          </button>;
+        })}
+      </div>
+      <button type="button" className="choice-reset" onClick={returnToWish}>都不贴近，重新描述</button>
     </section> : null}
 
     {(state.phase === "matching" || state.phase === "mask" || state.phase === "wearing") ? <section className="mask-match-stage" aria-live="polite">
       <div className="mask-orbit" aria-label="八面傩面正在匹配">
-        {getFaceData.masks.slice(0, CARD_IDS.length).map((mask, index) => <div
-          aria-label={MASK_TITLES[index] ?? mask.name}
-          className={`orbit-mask orbit-mask-${index}${state.phase !== "matching" && index === selected ? " selected" : ""}${state.phase !== "matching" && index !== selected ? " dismissed" : ""}`}
-          key={mask.id}
-          role="img"
-          style={{ "--mask-a": mask.visual.card.primary, "--mask-b": mask.visual.card.secondary } as React.CSSProperties}
-        >
-          <Image className="orbit-mask-thumbnail" src={RITUAL_MASK_THUMBNAILS[index]} alt="" width={150} height={200} loading="eager" unoptimized />
-        </div>)}
+        {getFaceData.masks.slice(0, RITUAL_MASK_THUMBNAILS.length).map((mask, index) => {
+          const classes = ["orbit-mask", `orbit-mask-${index}`];
+          const isSelected = state.phase === "mask" || state.phase === "wearing" ? index === selected : false;
+          if (isSelected) classes.push("selected");
+          const dismissed = state.phase !== "matching" && !isSelected;
+          if (dismissed) classes.push("dismissed");
+          return <div
+            aria-label={mask.name}
+            aria-hidden={dismissed ? true : undefined}
+            className={classes.join(" ")}
+            key={mask.id}
+            role="img"
+            style={{ "--mask-a": mask.visual.card.primary, "--mask-b": mask.visual.card.secondary } as React.CSSProperties}
+          >
+            <Image className="orbit-mask-thumbnail" src={RITUAL_MASK_THUMBNAILS[index]} alt="" width={150} height={200} loading="eager" unoptimized />
+          </div>;
+        })}
       </div>
+
       <div className="match-copy">
         <span>{state.phase === "matching" ? "识 · 惑 · 请 · 面" : "得 · 面"}</span>
-        <h1>{state.phase === "matching" ? "八面寻心" : MASK_TITLES[selected]}</h1>
-        <p>{state.phase === "matching" ? "面具正在围绕你的困惑旋转，等待一面停于眼前。" : `职司 · ${MASK_DUTIES[selected]}`}</p>
-        {state.phase === "mask" && matchReady ? <button type="button" className="enter-dream-button" onClick={() => dispatch({ type: "enterStory" })}>入 戏</button> : null}
+        <h1>{state.phase === "matching" ? "八面寻心" : (selectedStoryMask?.maskName ?? getFaceData.masks[selected]?.name ?? "")}</h1>
+        {state.phase === "matching" && matchError ? <>
+          <p className="ritual-error" role="alert">{matchError}</p>
+          <div className="match-actions">
+            <button type="button" className="enter-dream-button" onClick={retryMatching}>再问一次</button>
+            <button type="button" className="choice-reset" onClick={returnToWish}>返回修改问题</button>
+          </div>
+        </> : <p>{state.phase === "matching" ? "面具正在围绕你的困惑旋转，两面的轮廓正从八面中浮现。" : `职司 · ${selectedStoryMask?.duty ?? ""}`}</p>}
+        {state.phase === "mask" && revealedCardId === state.cardId ? <button type="button" className="enter-dream-button" onClick={() => dispatch({ type: "enterStory" })}>入 戏</button> : null}
       </div>
       {state.phase === "wearing" ? <div className="wearing-flash" aria-hidden="true" /> : null}
     </section> : null}

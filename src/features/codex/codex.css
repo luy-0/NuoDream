@@ -1,4 +1,4 @@
-.codex-experience { min-height: 100svh; position: relative; overflow: auto; padding: clamp(30px, 5vw, 68px) clamp(18px, 4vw, 60px) 44px; background: radial-gradient(circle at 76% 32%, rgba(71,106,99,.22), transparent 31%), linear-gradient(145deg, #172426, #071013 72%); color: #d2c6aa; }
+.codex-experience { height: 100svh; position: relative; overflow-x: hidden; overflow-y: auto; padding: clamp(30px, 5vw, 68px) clamp(18px, 4vw, 60px) 44px; background: radial-gradient(circle at 76% 32%, rgba(71,106,99,.22), transparent 31%), linear-gradient(145deg, #172426, #071013 72%); color: #d2c6aa; }
 .codex-experience::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .34; background: linear-gradient(rgba(6,5,4,.67), rgba(6,5,4,.76)), var(--codex-altar) center / cover no-repeat; mix-blend-mode: screen; }
 .codex-title, .codex-actions, .codex-layout, .codex-restart { position: relative; z-index: 1; }
 .codex-title { max-width: min(620px, 76vw); }

@@ -83,7 +83,7 @@ export class MaskReliefViewer {
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       this.renderer.domElement.tabIndex = 0;
       this.renderer.domElement.setAttribute("role", "img");
-      this.renderer.domElement.setAttribute("aria-label", `${mask.name}傩面三维模型，按住拖拽旋转，滚轮缩放`);
+      this.renderer.domElement.setAttribute("aria-label", `${mask.name}傩面三维模型，按住拖拽旋转，按加减键缩放`);
       this.host.appendChild(this.renderer.domElement);
 
       const group = new THREE.Group();
@@ -218,11 +218,6 @@ export class MaskReliefViewer {
     add("pointercancel", () => { this.dragging = false; });
     add("pointerenter", () => { this.hovered = true; });
     add("pointerleave", () => { this.hovered = false; });
-    add("wheel", (event) => {
-      event.preventDefault();
-      const wheel = event as WheelEvent;
-      this.targetDistance = clamp(this.targetDistance + wheel.deltaY * 0.003, this.options.minDistance ?? 2.3, this.options.maxDistance ?? 4.3);
-    }, { passive: false });
     add("keydown", (event) => {
       const key = (event as KeyboardEvent).key;
       const step = 0.22;

@@ -314,7 +314,10 @@ describe("GetFaceRitual", () => {
       expect(card.querySelector(".choice-card-front")).toBeTruthy();
       expect(card.querySelector(".choice-card-back")).toBeTruthy();
       expect(card.querySelector(".choice-card-frame")).toBeTruthy();
-      expect(card.querySelector(".choice-card-mask img")).toBeTruthy();
+      const image = card.querySelector(".choice-card-mask img");
+      expect(image).toBeTruthy();
+      expect(decodeURIComponent(image!.getAttribute("src") ?? "")).toContain("/ui/codex/details/");
+      expect(image!.getAttribute("srcset")).toBeTruthy();
       expect(card.querySelector(".choice-card-name")?.textContent).toMatch(/柳毅|开路将军/);
       expect(card.querySelector(".choice-card-prompt")?.textContent).toContain("你");
       expect(card.textContent ?? "").not.toMatch(/傩谱|已收录|《|》|\d{2}/);

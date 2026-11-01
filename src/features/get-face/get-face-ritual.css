@@ -54,6 +54,7 @@
 .choice-card-front { border: 1px solid rgba(214,175,89,.34); background: radial-gradient(circle at 50% 30%, rgba(73,111,105,.18), transparent 46%), linear-gradient(150deg, rgba(20,29,32,.98), rgba(7,12,15,.99) 74%); box-shadow: inset 0 0 0 1px rgba(240,215,155,.04), inset 0 -40px 64px rgba(0,0,0,.5), 0 18px 38px rgba(0,0,0,.48); }
 .choice-card-back { transform: rotateY(180deg); border: 1px solid rgba(214,175,89,.42); background: radial-gradient(circle at 50% 42%, rgba(113,67,26,.26), transparent 44%), repeating-linear-gradient(102deg, rgba(222,194,126,.02) 0 1px, transparent 1px 8px), url("/dream-assets/ui/codex/card-back-seal-v2.svg") center / 72% no-repeat, linear-gradient(152deg, #19252a, #091115 72%); box-shadow: inset 0 0 42px rgba(181,123,40,.1), 0 18px 36px rgba(0,0,0,.5); }
 .choice-card-mask { position: absolute; z-index: 1; inset: 0; display: block; padding: 12% 11% 34%; }
+.choice-card-mask-image { position: relative; display: block; width: 100%; height: 100%; }
 .choice-card-mask img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 10px rgba(215,173,81,.26)) drop-shadow(0 12px 18px rgba(0,0,0,.5)); transform: scale(.98); transition: transform .3s ease, filter .3s ease; }
 .choice-card-veil { position: absolute; z-index: 2; inset: 0; background: linear-gradient(180deg, rgba(5,10,12,.02) 40%, rgba(5,9,11,.2) 60%, rgba(4,8,10,.92) 100%); }
 .choice-card-frame { position: absolute; z-index: 5; inset: 0; background: url("/dream-assets/ui/codex/card-front-frame-v2.svg") center / 100% 100% no-repeat; pointer-events: none; }

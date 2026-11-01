@@ -298,7 +298,7 @@ export function GetFaceRitual({ onReturn }: { onReturn: () => void }) {
             <span className="choice-card-inner">
               <span className="choice-card-back" aria-hidden="true" />
               <span className="choice-card-front">
-                <span className="choice-card-mask"><Image src={card.thumbnail} alt="" width={240} height={320} loading="eager" unoptimized /></span>
+                <span className="choice-card-mask"><span className="choice-card-mask-image"><Image src={card.artwork} alt="" fill sizes="(max-width: 700px) 45vw, 400px" loading="eager" /></span></span>
                 <span className="choice-card-veil" aria-hidden="true" />
                 <span className="choice-card-frame" aria-hidden="true" />
                 <span className="choice-card-meta">

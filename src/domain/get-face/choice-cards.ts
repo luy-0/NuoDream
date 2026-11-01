@@ -1,3 +1,4 @@
+import { CARD_TO_CODEX_MASK_ID, DETAIL_ASSETS } from "@/domain/codex/assets";
 import { getRitualStoryMask } from "./ritual-story-masks";
 import { getStoryMatchProfile } from "./story-match-profiles";
 
@@ -8,7 +9,7 @@ export interface ChoiceCard {
   maskName: string;
   storyTitle: string;
   duty: string;
-  thumbnail: string;
+  artwork: string;
   prompt: string;
 }
 
@@ -22,7 +23,7 @@ export function resolveChoiceCard(cardId: string): ChoiceCard | null {
     maskName: mask.maskName,
     storyTitle: mask.storyTitle,
     duty: mask.duty,
-    thumbnail: mask.thumbnail,
+    artwork: DETAIL_ASSETS[CARD_TO_CODEX_MASK_ID[cardId]]?.mainMask ?? mask.thumbnail,
     prompt: profile.prompt
   };
 }

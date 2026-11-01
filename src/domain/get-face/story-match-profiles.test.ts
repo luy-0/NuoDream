@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getDreamCard, listDreamCardIds } from "@/domain/dream-card";
@@ -78,6 +78,12 @@ describe("ritual story masks", () => {
         prompt: profile.prompt,
         maskIndex: ritualMaskIndex(profile.cardId)
       });
+      const artworkPath = join(process.cwd(), "public", card!.artwork);
+      expect(card!.artwork).toContain("/ui/codex/details/");
+      expect(existsSync(artworkPath)).toBe(true);
+      const png = readFileSync(artworkPath);
+      expect(png.readUInt32BE(16)).toBeGreaterThanOrEqual(600);
+      expect(png.readUInt32BE(20)).toBeGreaterThanOrEqual(600);
     }
   });
 
